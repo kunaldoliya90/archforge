@@ -71,6 +71,10 @@ Markdown works in here: **bold**, `code`, lists and tables.
 
 Put `<!-- diagrams -->` anywhere on a page to insert a grid of every diagram, linking each one to the page that uses it. The home page does this.
 
+### Public pages
+
+Make `<!-- public -->` the first line of a page to let anyone open the page without signing in. See [Deploying](04-deploying.md#sharing-individual-pages).
+
 ## Customising the look
 
 The theme is plain HTML, CSS and JavaScript in `theme/`, with no framework and no build step:

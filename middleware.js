@@ -3,11 +3,15 @@
 // (Vercel → Project → Settings → Environment Variables). Runs before any file is served,
 // so unauthenticated visitors never receive page HTML or diagram images.
 //
-//   /login/   sign-in form (GET) and credential check (POST)
-//   /logout/  ends the session
-//   anything  served only with a valid session cookie (see auth/session.js)
+//   /login/     sign-in form (GET) and credential check (POST)
+//   /logout/    ends the session
+//   /_theme/    CSS, JS and icons: always open
+//   /_public/   the public copy of pages marked <!-- public --> (see auth/public-pages.js)
+//   anything    needs a valid session cookie (see auth/session.js), except public pages,
+//               which anonymous visitors see at their normal URL
 
-import { renderLoginPage, LOGIN_ASSETS } from "./auth/login-page.js";
+import { renderLoginPage } from "./auth/login-page.js";
+import { PUBLIC_PREFIX, loadPublicManifest, pageKey } from "./auth/public-pages.js";
 import { clearedSessionCookie, hasValidSession, safeEqual, sessionCookie } from "./auth/session.js";
 
 export const config = {
@@ -15,6 +19,7 @@ export const config = {
 };
 
 const FAILED_LOGIN_DELAY_MS = 600;
+const OPEN_PREFIXES = ["/_theme/", `${PUBLIC_PREFIX}/`];
 
 // ---- Responses --------------------------------------------------------------
 
@@ -29,6 +34,16 @@ function redirect(location, cookie) {
   const headers = { Location: location, "Cache-Control": "no-store" };
   if (cookie) headers["Set-Cookie"] = cookie;
   return new Response(null, { status: 303, headers });
+}
+
+// Lets Vercel serve the requested file (what @vercel/edge's next() does).
+function passThrough() {
+  return new Response(null, { headers: { "x-middleware-next": "1" } });
+}
+
+// Serves another path's file under the requested URL (what @vercel/edge's rewrite() does).
+function rewrite(url) {
+  return new Response(null, { headers: { "x-middleware-rewrite": url.toString() } });
 }
 
 function unauthorized() {
@@ -68,6 +83,15 @@ function logout() {
   return redirect("/login/", clearedSessionCookie());
 }
 
+// Anonymous visitors get the public copy of a public page, and the images it uses.
+async function servePublic(url) {
+  const { pages, files } = await loadPublicManifest(url.origin);
+  const key = pageKey(url.pathname);
+  if (pages.has(key)) return rewrite(new URL(PUBLIC_PREFIX + key, url));
+  if (files.has(url.pathname)) return passThrough();
+  return null;
+}
+
 // Page visits are sent to the sign-in page; other files (images, search.json) just get 401.
 function requireLogin(request, url) {
   const wantsPage = request.method === "GET" && (request.headers.get("accept") || "").includes("text/html");
@@ -97,8 +121,8 @@ export default async function middleware(request) {
       : showLogin(request, url, secret);
   }
   if (path === "/logout") return logout();
-  if (LOGIN_ASSETS.includes(url.pathname)) return;
+  if (OPEN_PREFIXES.some((prefix) => url.pathname.startsWith(prefix))) return passThrough();
 
-  if (await hasValidSession(request, secret)) return; // Let Vercel serve the static file.
-  return requireLogin(request, url);
+  if (await hasValidSession(request, secret)) return passThrough();
+  return (await servePublic(url)) ?? requireLogin(request, url);
 }

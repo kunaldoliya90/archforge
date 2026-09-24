@@ -14,6 +14,9 @@ No config file: the site structure *is* the docs/ folder.
 * Link to other pages with their relative .md path — broken links fail the build.
 * Images under docs/assets/ render as zoomable diagram cards, and `<!-- diagrams -->`
   in any page expands to a gallery of every diagram.
+* A `<!-- public -->` first line marks a page as public. Each public page gets a second copy
+  under public/_public/ whose sidebar, search and gallery show only public pages, plus
+  a manifest that middleware.js uses to serve it without a sign-in.
 
     python build.py            # build into public/
 """
@@ -38,9 +41,11 @@ DOCS = ROOT / "docs"
 THEME = ROOT / "theme"
 ARCH = ROOT / "architecture"
 OUT = ROOT / "public"
+PUBLIC_DIR = "_public"  # public/_public/: the copy of the site that anonymous visitors see
 
 ACRONYMS = {"ai", "api", "adr", "hld", "lld", "llm", "sdk"}
 PREFIX = re.compile(r"^(\d+)[-_]")
+PUBLIC_MARK = re.compile(r"\A\s*<!--\s*public\s*-->[ \t]*\n?")  # first line only, so code samples can show it
 LIVE_RELOAD = '<script>new EventSource("/__reload").onmessage = () => location.reload();</script>'
 
 
@@ -93,6 +98,7 @@ class Page:
     html: str = ""
     toc: list[tuple[int, str, str]] = field(default_factory=list)
     description: str = ""
+    public: bool = False
 
     @property
     def rel(self) -> str:
@@ -125,7 +131,26 @@ def discover() -> list[tuple[str | None, list[Page]]]:
             text = page.src.read_text(encoding="utf-8")
             heading = re.search(r"^#\s+(.+?)\s*$", text, re.M)
             page.title = heading.group(1) if heading else humanize(page.src.stem)
+            page.public = bool(PUBLIC_MARK.search(text))
     return groups
+
+
+@dataclass
+class View:
+    """One audience's copy of the site: every page for signed-in readers, or only the public ones."""
+    groups: list[tuple[str | None, list[Page]]]
+    out: Path
+    search_url: str
+    pages: list[Page] = field(init=False)
+
+    def __post_init__(self) -> None:
+        self.pages = [p for _, pages in self.groups for p in pages]
+
+    @property
+    def home_url(self) -> str:
+        if not self.pages or any(p.url == "/" for p in self.pages):
+            return "/"
+        return self.pages[0].url
 
 
 # ── Rendering ────────────────────────────────────────────────────────────────
@@ -153,9 +178,12 @@ class Site:
         self.errors: list[str] = []
         self.changed = 0  # files actually rewritten by this build
         self.groups = discover()
-        self.pages = [p for _, pages in self.groups for p in pages]
+        self.full = View(self.groups, OUT, "/search.json")
+        public_groups = [(label, [p for p in pages if p.public]) for label, pages in self.groups]
+        self.public = View([g for g in public_groups if g[1]], OUT / PUBLIC_DIR, f"/{PUBLIC_DIR}/search.json")
+        self.pages = self.full.pages
         self.by_src = {p.rel: p for p in self.pages}
-        self.diagrams: dict[str, tuple[str, Page]] = {}  # asset url → (caption, first page using it)
+        self.diagrams: dict[str, tuple[str, list[Page]]] = {}  # asset url → (caption, pages using it)
         self.template = Template((THEME / "base.html").read_text(encoding="utf-8"))
         home = next((p for p in self.pages if p.url == "/"), None)
         self.site_name = home.title if home else "Docs"
@@ -185,7 +213,7 @@ class Site:
     def figure(self, m: re.Match, page: Page) -> str:
         alt, src = html.unescape(m.group(1)), m.group(2)
         name = Path(src).stem
-        self.diagrams.setdefault(src, (alt, page))
+        self.diagrams.setdefault(src, (alt, []))[1].append(page)
         source = ARCH / f"{name}.py"
         badge = f'<code class="src-badge">architecture/{source.name}</code>' if source.exists() else ""
         return (
@@ -198,7 +226,7 @@ class Site:
 
     def render(self, page: Page, md: markdown.Markdown) -> None:
         md.reset()
-        body = md.convert(page.src.read_text(encoding="utf-8"))
+        body = md.convert(PUBLIC_MARK.sub("", page.src.read_text(encoding="utf-8")))
         body = self.rewrite_links(body, page)
         body = re.sub(r'<p>\s*<img alt="([^"]*)" src="(/assets/[^"]+)"\s*/?>\s*</p>',
                       lambda m: self.figure(m, page), body)
@@ -216,13 +244,16 @@ class Site:
         page.description = strip_tags(first_p.group(1))[:180] if first_p else ""
 
     # gallery -----------------------------------------------------------------
-    def gallery(self) -> str:
+    def gallery(self, view: View) -> str:
         assets = sorted((DOCS / "assets").glob("*.png")) if (DOCS / "assets").is_dir() else []
-        order = {p.url: i for i, p in enumerate(self.pages)}
+        order = {p.url: i for i, p in enumerate(view.pages)}
         cards = []
         for asset in assets:
             src = f"/assets/{asset.name}"
-            caption, page = self.diagrams.get(src, (humanize(asset.stem), None))
+            caption, users = self.diagrams.get(src, (humanize(asset.stem), []))
+            page = next((p for p in users if p.url in order), None)
+            if not page and view is not self.full:
+                continue  # The public copy only shows diagrams that appear on a public page.
             href = f"{page.url}#diagram-{asset.stem}" if page else src
             where = page.title if page else "Unlinked diagram"
             cards.append((order.get(page.url, 999) if page else 999, (
@@ -232,9 +263,9 @@ class Site:
         return '<div class="gallery">' + "".join(c for _, c in sorted(cards, key=lambda c: c[0])) + "</div>"
 
     # chrome ------------------------------------------------------------------
-    def nav_html(self, current: Page | None) -> str:
+    def nav_html(self, current: Page | None, view: View) -> str:
         out = ['<nav class="nav" aria-label="Documentation">']
-        for label, pages in self.groups:
+        for label, pages in view.groups:
             out.append('<div class="nav-group">')
             if label:
                 out.append(f'<div class="nav-label">{html.escape(label)}</div>')
@@ -252,10 +283,11 @@ class Site:
         links = "".join(f'<a class="toc-link lvl{lvl}" href="#{i}">{html.escape(name)}</a>' for lvl, i, name in page.toc)
         return f'<div class="toc-inner"><div class="toc-label">On this page</div>{links}</div>'
 
-    def pager_html(self, page: Page) -> str:
-        i = self.pages.index(page)
-        prev_p = self.pages[i - 1] if i > 0 else None
-        next_p = self.pages[i + 1] if i + 1 < len(self.pages) else None
+    def pager_html(self, page: Page, view: View) -> str:
+        pages = view.pages
+        i = pages.index(page)
+        prev_p = pages[i - 1] if i > 0 else None
+        next_p = pages[i + 1] if i + 1 < len(pages) else None
         if not (prev_p or next_p):
             return ""
 
@@ -266,29 +298,31 @@ class Site:
 
         return f'<nav class="pager">{card(prev_p, "← Previous", "prev")}{card(next_p, "Next →", "next")}</nav>'
 
-    def write(self, url: str, page: Page | None, content: str, title: str, body_class: str) -> None:
+    def write(self, view: View, url: str, page: Page | None, content: str, title: str, body_class: str) -> None:
         eyebrow = f'<div class="eyebrow">{html.escape(page.section)}</div>' if page and page.section else ""
         doc = self.template.substitute(
             title=html.escape(title),
             site_name=html.escape(self.site_name),
+            home_url=view.home_url,
+            search_url=view.search_url,
             description=html.escape(page.description if page else ""),
             body_class=body_class,
-            nav=self.nav_html(page),
+            nav=self.nav_html(page, view),
             eyebrow=eyebrow,
             content=content,
             toc=self.toc_html(page) if page else "",
-            pager=self.pager_html(page) if page else "",
+            pager=self.pager_html(page, view) if page else "",
             live_reload=LIVE_RELOAD if self.dev else "",
         )
-        dest = OUT / url.lstrip("/")
+        dest = view.out / url.lstrip("/")
         if url.endswith("/"):
             dest = dest / "index.html"
         self.changed += write_file(dest, doc)
 
     # search ------------------------------------------------------------------
-    def search_index(self) -> list[dict]:
+    def search_index(self, view: View) -> list[dict]:
         entries = []
-        for page in self.pages:
+        for page in view.pages:
             body = page.html
             heads = list(re.finditer(r'<h([1-3])[^>]*?id="([^"]+)"[^>]*>(.*?)</h\1>', body, re.S))
             spans = [(None, "", 0)] + [
@@ -313,14 +347,24 @@ class Site:
         if self.errors:
             raise BuildError("\n".join(self.errors))
 
-        gallery = self.gallery()
-        for page in self.pages:
-            content = page.html.replace("<!-- diagrams -->", gallery)
-            is_home = page.url == "/"
-            title = self.site_name if is_home else f"{page.title} · {self.site_name}"
-            self.write(page.url, page, content, title, "home" if is_home else "doc")
+        public_files: set[str] = set()
+        for view in (self.full, self.public):
+            gallery = self.gallery(view)
+            for page in view.pages:
+                content = page.html.replace("<!-- diagrams -->", gallery)
+                is_home = page.url == "/"
+                title = self.site_name if is_home else f"{page.title} · {self.site_name}"
+                self.write(view, page.url, page, content, title, "home" if is_home else "doc")
+                if view is self.public:
+                    public_files |= self.linked_files(content)
+            self.changed += write_file(view.out / "search.json",
+                                       json.dumps(self.search_index(view), ensure_ascii=False))
 
-        self.write("/404.html", None,
+        # Read by middleware.js to decide what anonymous visitors may open.
+        manifest = {"pages": [p.url for p in self.public.pages], "files": sorted(public_files)}
+        self.changed += write_file(OUT / PUBLIC_DIR / "manifest.json", json.dumps(manifest, indent=2))
+
+        self.write(self.full, "/404.html", None,
                    '<h1>Page not found</h1><p>That page doesn\'t exist. Try the search (<kbd>Ctrl</kbd> <kbd>K</kbd>) '
                    'or head back to the <a href="/">overview</a>.</p>', f"Not found · {self.site_name}", "doc")
 
@@ -337,7 +381,11 @@ class Site:
         dark = HtmlFormatter(style="github-dark", nobackground=True).get_style_defs('[data-theme="dark"] .highlight')
         self.changed += write_file(theme_out / "pygments.css", light + "\n" + dark)
 
-        self.changed += write_file(OUT / "search.json", json.dumps(self.search_index(), ensure_ascii=False))
+    @staticmethod
+    def linked_files(content: str) -> set[str]:
+        """Site files (images, downloads) a page links to, so its public copy can load them."""
+        urls = re.findall(r'\b(?:src|href|data-src)="(/[^"#?]+)', content)
+        return {u for u in urls if Path(u).suffix and not u.startswith("/_theme/")}
 
 
 def build(dev: bool = False) -> tuple[int, int]:

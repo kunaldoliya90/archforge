@@ -154,7 +154,8 @@ Notes:
 
 - **Commit your PNGs.** Vercel has no Graphviz, so it publishes the images committed in `docs/assets/`.
 - **The site fails closed.** If the env vars are missing, it returns `503` instead of going public.
-- **To make it public,** delete `middleware.js`.
+- **To share a single page,** make `<!-- public -->` the first line of its Markdown. Anyone with its link can read it, and every other page stays private.
+- **To make the whole site public,** delete `middleware.js`.
 - **Other hosts:** run `python build.py` and upload `public/` to Netlify, Cloudflare Pages, GitHub Pages or S3.
 
 ---

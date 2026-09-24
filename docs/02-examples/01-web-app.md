@@ -1,3 +1,4 @@
+<!-- public -->
 # Web application
 
 A reference layout for a typical web product: a single-page app in front of stateless API servers, with a job queue for slow work. Use it as a starting point for your own high-level design.

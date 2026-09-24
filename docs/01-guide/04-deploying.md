@@ -34,6 +34,22 @@ Sessions are signed with `SESSION_SECRET` if you set it, otherwise with a key de
 !!! tip "Logging out"
     Visit `/logout/` to clear the session cookie and return to the sign-in page.
 
+## Sharing individual pages
+
+To share one page without the password, make this the first line of its Markdown file:
+
+```markdown
+<!-- public -->
+```
+
+Deploy, then send the page's normal URL. Anyone can open it and the diagrams on it without signing in. Every other page stays private.
+
+Anonymous visitors see a copy of the page where the sidebar, search, gallery and previous/next links include only public pages, so private page titles and content never reach them. Signed-in readers still see the full site. Links from a public page to a private one lead to the sign-in page.
+
+`build.py` writes these copies to `public/_public/` along with a `manifest.json` listing the public pages and their images. `middleware.js` reads that manifest to decide what to serve without a session.
+
+To make a page private again, delete the line and redeploy.
+
 ## Making it public
 
 To publish without a password, delete `middleware.js`.

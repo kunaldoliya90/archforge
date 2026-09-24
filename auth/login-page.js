@@ -1,7 +1,5 @@
-// The sign-in page, rendered by the middleware. Styles live in theme/login.css,
-// which is served without a session.
-
-export const LOGIN_ASSETS = ["/_theme/login.css", "/_theme/favicon.svg"];
+// The sign-in page, rendered by the middleware. Styles live in theme/login.css
+// (everything under /_theme/ is served without a session).
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({

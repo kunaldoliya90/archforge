@@ -58,7 +58,7 @@
     input.focus();
     renderResults();
     if (!index) {
-      try { index = await (await fetch("/search.json")).json(); } catch (e) { index = []; }
+      try { index = await (await fetch(document.body.dataset.search || "/search.json")).json(); } catch (e) { index = []; }
       renderResults();
     }
   }
