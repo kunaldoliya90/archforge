@@ -1,0 +1,12 @@
+# Zero-install dev loop: `docker compose up`, then open http://localhost:8000
+# Edit architecture/*.py → PNG re-renders → browser refreshes.
+services:
+  docs:
+    build: .
+    image: archforge
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/data
+    environment:
+      WATCH_POLLING: "1"

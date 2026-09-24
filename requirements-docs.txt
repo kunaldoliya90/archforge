@@ -1,0 +1,4 @@
+# Only what's needed to build the static site (used by Vercel; no Graphviz required).
+markdown>=3.6
+pygments>=2.17
+pymdown-extensions>=10.0

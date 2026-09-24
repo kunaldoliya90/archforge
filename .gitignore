@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Built site (Vercel builds it from docs/)
+public/
+
+# Vercel
+.vercel/
+.env*
+
+# Environment / OS
+.DS_Store
+Thumbs.db
+*.log

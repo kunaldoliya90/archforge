@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  diagrams-and-docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install Graphviz
+        run: sudo apt-get update && sudo apt-get install -y graphviz
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Render every diagram (fails on any Python/diagrams error)
+        run: python watch.py --once
+
+      - name: Check every diagram has a committed PNG
+        run: |
+          missing=0
+          for f in architecture/[!_]*.py; do
+            png="docs/assets/$(basename "${f%.py}").png"
+            git ls-files --error-unmatch "$png" >/dev/null 2>&1 || { echo "::error::$png is not committed (source: $f)"; missing=1; }
+          done
+          exit $missing
+
+      - name: Build site (fails on broken links)
+        run: python build.py

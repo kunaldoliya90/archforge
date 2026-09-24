@@ -1,0 +1,3 @@
+-r requirements-docs.txt
+diagrams>=0.25.1
+watchdog>=6.0.0
