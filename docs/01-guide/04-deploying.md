@@ -9,27 +9,30 @@ ArchForge builds to plain static files in `public/`, so it runs on any static ho
 
     | Setting | Value |
     |---|---|
-    | Install | `python3 -m pip install -r requirements-docs.txt` |
+    | Install | `python3 -m pip install --break-system-packages -r requirements-docs.txt` |
     | Build | `python3 build.py` |
     | Output | `public` |
 
 3. Under **Settings → Environment Variables**, add `ADMIN_USER` and `ADMIN_PASS`.
 4. Deploy.
 
-Visitors now get a browser login prompt before any page or image is served.
+Visitors now see a sign-in page before any page or image is served.
 
 ## How the password works
 
 `middleware.js` is a Vercel Edge Middleware function that runs before every request:
 
-- **Correct credentials:** the file is served.
-- **Missing or wrong credentials:** `401`, and the browser asks for a login.
+- **No session:** page visits redirect to `/login/`. Other files (images, `search.json`) return `401`.
+- **Correct credentials:** the login form sets a signed, `HttpOnly` session cookie valid for 7 days, and the visitor returns to the page they asked for.
+- **Wrong credentials:** the login page shows an error.
 - **Env vars not set:** `503`. The site fails closed and never becomes public by accident.
 
-The check happens on the server, so unauthenticated visitors never receive the HTML or the images. This is stronger than a JavaScript login page, where the content still reaches the browser.
+The check happens on the server, so unauthenticated visitors never receive the HTML or the images. This is stronger than a JavaScript-only login page, where the content still reaches the browser.
+
+Sessions are signed with `SESSION_SECRET` if you set it, otherwise with a key derived from the credentials. Changing `ADMIN_PASS` therefore signs everyone out.
 
 !!! tip "Logging out"
-    Browsers cache Basic Auth credentials until they close. To switch users, visit `https://logout@your-domain.vercel.app` to replace the cached login.
+    Visit `/logout/` to clear the session cookie and return to the sign-in page.
 
 ## Making it public
 

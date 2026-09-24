@@ -148,7 +148,7 @@ docs/
 
 1. Push your repository to GitHub and **import it in Vercel**. `vercel.json` already sets the install command, build command and output directory.
 2. Under **Settings → Environment Variables**, add `ADMIN_USER` and `ADMIN_PASS`.
-3. **Deploy.** Visitors get a login prompt before any page or image is served.
+3. **Deploy.** Visitors see a sign-in page before any page or image is served. Visit `/logout/` to sign out.
 
 Notes:
 
@@ -178,10 +178,11 @@ Notes:
 .
 ├── architecture/          Diagram sources (Python) · _style.py = shared styles
 ├── docs/                  Markdown pages · assets/ = rendered PNGs
-├── theme/                 base.html, style.css, app.js, favicon.svg: the whole look
+├── theme/                 base.html, style.css, app.js, login.css, favicon.svg: the whole look
 ├── build.py               Markdown → static site in public/
 ├── watch.py               Dev loop: render, rebuild, serve, auto-refresh
 ├── middleware.js          Vercel Edge password guard
+├── auth/                  Session cookies and the sign-in page used by middleware.js
 ├── vercel.json            Vercel build settings
 ├── Dockerfile             Python + Graphviz toolchain
 ├── docker-compose.yml     `docker compose up` dev loop
